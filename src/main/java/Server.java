@@ -4,10 +4,13 @@ import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import org.apache.commons.io.IOUtils;
 
-import java.io.*;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.URL;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -20,7 +23,7 @@ public class Server
     {
         int port = 8000;
 
-        server = HttpServer.create(new InetSocketAddress(port), 0);
+        server = HttpServer.create(new InetSocketAddress(port), 300);
         server.createContext("/", new RootHandler());
         server.start();
 
@@ -35,22 +38,23 @@ public class Server
             URL url = exchange.getRequestURI().toURL();
             HttpURLConnection httpURLConnection = (HttpURLConnection) url.openConnection();
             httpURLConnection.setInstanceFollowRedirects(false);
+
             // Setting headers
             Headers headers = exchange.getRequestHeaders();
-
-            for (Map.Entry<String, List<String>> header : headers.entrySet()) {
-                for(String value : header.getValue()){
-                    httpURLConnection.setRequestProperty(header.getKey(), value);
+            for (String key : headers.keySet())
+            {
+                for (String value : headers.get(key))
+                {
+//                    System.out.println(key + " : " + value);
+                    httpURLConnection.setRequestProperty(key, value);
                 }
-
             }
 
             // Setting request method
             String requestMethod = exchange.getRequestMethod();
             httpURLConnection.setRequestMethod(requestMethod);
-            if(requestMethod == "POST" || requestMethod == "PUT")
+            if (requestMethod == "POST" || requestMethod == "PUT")
             {
-                System.out.println("POST !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
                 httpURLConnection.setDoOutput(true);
                 httpURLConnection.setDoInput(true);
 
@@ -60,8 +64,7 @@ public class Server
                 OutputStream toServerStream = httpURLConnection.getOutputStream();
                 toServerStream.write(bytes);
                 toServerStream.close();
-            }
-            else
+            } else
             {
                 httpURLConnection.setDoOutput(false);
                 httpURLConnection.setDoInput(true);
@@ -73,23 +76,16 @@ public class Server
             InputStream inputStream = null;
             inputStream = httpURLConnection.getInputStream();
 
-            if(httpURLConnection.getResponseCode() >= 200 && httpURLConnection.getResponseCode() < 300)
-                System.out.println("OK");
-            else
-            {
-                System.out.println("Error!");
-            }
-
             byte[] bytes = IOUtils.toByteArray(inputStream);
             OutputStream os = exchange.getResponseBody();
 
-            for (Map.Entry<String, List<String>> header : httpURLConnection.getHeaderFields().entrySet()) {
-                for(String value : header.getValue()){
-                    if(header.getKey() != null && header.getKey() != "Transfer-Encoding")
-                    {
-                        exchange.getResponseHeaders().set(header.getKey(), value);
-                    }
-                }
+            Map<String, List<String>> responseMap = httpURLConnection.getHeaderFields();
+            for (Iterator iterator = responseMap.keySet().iterator(); iterator.hasNext(); )
+            {
+                String key = (String) iterator.next();
+                String value = responseMap.get(key).get(0);
+
+                exchange.getResponseHeaders().set(key, value);
             }
 
             exchange.sendResponseHeaders(httpURLConnection.getResponseCode(), bytes.length);
