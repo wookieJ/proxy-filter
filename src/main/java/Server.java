@@ -58,12 +58,22 @@ public class Server
                 httpURLConnection.setDoOutput(true);
                 httpURLConnection.setDoInput(true);
 
-                // Sending request body to server
-                byte[] bytes = IOUtils.toByteArray(exchange.getRequestBody());
+                OutputStream toServerStream = null;
 
-                OutputStream toServerStream = httpURLConnection.getOutputStream();
-                toServerStream.write(bytes);
-                toServerStream.close();
+                try
+                {
+                    // Sending request body to server
+                    byte[] bytes = IOUtils.toByteArray(exchange.getRequestBody());
+
+                    toServerStream = httpURLConnection.getOutputStream();
+                    toServerStream.write(bytes);
+                } catch (Exception e)
+                {
+                    e.printStackTrace();
+                } finally
+                {
+                    toServerStream.close();
+                }
             } else
             {
                 httpURLConnection.setDoOutput(false);
@@ -73,27 +83,38 @@ public class Server
             httpURLConnection.setUseCaches(false);
             httpURLConnection.connect();
 
-            InputStream inputStream = null;
-            inputStream = httpURLConnection.getInputStream();
-
-            byte[] bytes = IOUtils.toByteArray(inputStream);
-            OutputStream os = exchange.getResponseBody();
-
             Map<String, List<String>> responseMap = httpURLConnection.getHeaderFields();
             for (Iterator iterator = responseMap.keySet().iterator(); iterator.hasNext(); )
             {
                 String key = (String) iterator.next();
                 String value = responseMap.get(key).get(0);
 
-                exchange.getResponseHeaders().set(key, value);
+                // block Transfer-Encoding header
+                if(key != null && !key.equals("Transfer-Encoding"))
+                    exchange.getResponseHeaders().set(key, value);
             }
 
-            exchange.sendResponseHeaders(httpURLConnection.getResponseCode(), bytes.length);
-            os.write(bytes);
-            os.close();
-            inputStream.close();
+            InputStream inputStream = null;
+            OutputStream os = null;
+            try
+            {
+                inputStream = httpURLConnection.getInputStream();
 
-            httpURLConnection.disconnect();
+                byte[] bytes = IOUtils.toByteArray(inputStream);
+                os = exchange.getResponseBody();
+
+
+                exchange.sendResponseHeaders(httpURLConnection.getResponseCode(), bytes.length);
+                os.write(bytes);
+            } catch (Exception e)
+            {
+                e.printStackTrace();
+            } finally
+            {
+                os.close();
+                inputStream.close();
+                httpURLConnection.disconnect();
+            }
         }
     }
 }
