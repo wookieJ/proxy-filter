@@ -105,7 +105,17 @@ public class Server
 
             if (!blackList.contains(urlHostName) && !blackList.contains(urlHostName.replaceFirst("www.", "")))
             {
-                HttpURLConnection httpURLConnection = (HttpURLConnection) url.openConnection();
+
+                HttpURLConnection httpURLConnection = null;
+
+                try
+                {
+                    httpURLConnection = (HttpURLConnection) url.openConnection();
+                } catch (Exception e)
+                {
+                    e.printStackTrace();
+                }
+
                 httpURLConnection.setInstanceFollowRedirects(false);
 
                 // Setting headers
@@ -123,35 +133,30 @@ public class Server
                 String requestMethod = exchange.getRequestMethod();
                 httpURLConnection.setRequestMethod(requestMethod);
                 Long outputLength = new Long(0);
-                if (requestMethod == "POST" || requestMethod == "PUT")
+
+                OutputStream toServerStream = null;
+                InputStream inputRequestStream = null;
+
+                try
                 {
-                    httpURLConnection.setDoOutput(true);
-                    httpURLConnection.setDoInput(true);
+                    inputRequestStream = exchange.getRequestBody();
+                    byte[] requestBody = IOUtils.toByteArray(inputRequestStream);
+                    inputRequestStream.close();
 
-                    OutputStream toServerStream = null;
+                    outputLength = Long.valueOf(requestBody.length);
 
-                    try
+                    if (requestBody.length > 0)
                     {
-                        // Sending request body to server
-                        byte[] bytes = IOUtils.toByteArray(exchange.getRequestBody());
-                        outputLength = Long.valueOf(bytes.length);
+                        httpURLConnection.setDoOutput(true);
                         toServerStream = httpURLConnection.getOutputStream();
-                        toServerStream.write(bytes);
-                    } catch (Exception e)
-                    {
-                        e.printStackTrace();
-                    } finally
-                    {
+                        System.out.println("Stream got - " + outputLength + "b sent");
+                        toServerStream.write(requestBody);
                         toServerStream.close();
                     }
-                } else
+                } catch (Exception e)
                 {
-                    httpURLConnection.setDoOutput(false);
-                    httpURLConnection.setDoInput(true);
+                    e.printStackTrace();
                 }
-
-                httpURLConnection.setUseCaches(false);
-                httpURLConnection.connect();
 
                 Map<String, List<String>> responseMap = httpURLConnection.getHeaderFields();
                 for (Iterator iterator = responseMap.keySet().iterator(); iterator.hasNext(); )
@@ -161,35 +166,39 @@ public class Server
 
                     // block Transfer-Encoding header
                     if (key != null && !key.equals("Transfer-Encoding"))
+                    {
                         exchange.getResponseHeaders().set(key, value);
+                    }
                 }
 
-                InputStream inputStream = null;
-                OutputStream os = null;
+                InputStream inputStream;
+                OutputStream os;
                 Long inputLength = null;
-                int httpConnectionCode = 0;
+                int httpConnectionCode = httpURLConnection.getResponseCode();
 
                 try
                 {
-                    inputStream = httpURLConnection.getInputStream();
+                    if (httpConnectionCode >= 400)
+                        inputStream = httpURLConnection.getErrorStream();
+                    else
+                        inputStream = httpURLConnection.getInputStream();
 
                     byte[] bytes = IOUtils.toByteArray(inputStream);
-                    os = exchange.getResponseBody();
+                    inputStream.close();
 
                     inputLength = Long.valueOf(bytes.length);
-                    httpConnectionCode = httpURLConnection.getResponseCode();
+
                     exchange.sendResponseHeaders(httpConnectionCode, bytes.length);
+                    os = exchange.getResponseBody();
+
                     os.write(bytes);
+                    os.close();
                 } catch (Exception e)
                 {
                     e.printStackTrace();
-                } finally
-                {
-                    os.close();
-                    inputStream.close();
-                    httpURLConnection.disconnect();
                 }
-                if(true || httpConnectionCode >= 200 && httpConnectionCode < 300)
+
+                if (true || httpConnectionCode >= 200 && httpConnectionCode < 300)
                 {
                     String domainHost = exchange.getRequestURI().getHost();
                     Domain domain = null;
@@ -203,17 +212,14 @@ public class Server
                     // domain exists - updating
                     if (domain != null)
                     {
-//                    Domain newDomain = new Domain(domain.getUrl(), domain.getRequestNumber() + 1, domain.getBytesSent() + outputLength, domain.getBytesReceived() + inputLength);
-                        System.out.println("old : " + domainList);
                         Domain finalDomain = domain;
                         Long finalOutputLength = outputLength;
                         Long finalInputLength = inputLength;
 
                         domainList = domainList.stream().map(d ->
                         {
-                            if(d.getUrl().equals(finalDomain.getUrl()))
+                            if (d.getUrl().equals(finalDomain.getUrl()))
                             {
-                                System.out.println("Changing this object!");
                                 d.setRequestNumber(d.getRequestNumber() + 1);
                                 d.setBytesSent(d.getBytesSent() + finalOutputLength);
                                 d.setBytesReceived(d.getBytesReceived() + finalInputLength);
@@ -222,8 +228,6 @@ public class Server
                         }).collect(Collectors.toList());
 
                         updateCSV();
-
-                        System.out.println("new : " + domainList);
                     } else
                     {
                         // creating new domain
@@ -232,8 +236,6 @@ public class Server
                             System.out.println("Creating new domain!");
                             domain = new Domain(domainHost, 1, outputLength, inputLength);
                             domainList.add(domain);
-
-//                        System.out.println(domainList);
 
                             updateCSV();
                         }
@@ -248,7 +250,7 @@ public class Server
                 os.write(responseHtml);
                 os.close();
 
-                System.out.println("NOT ALLOWED!");
+                System.out.println(urlHostName + " NOT ALLOWED!");
             }
         }
     }
