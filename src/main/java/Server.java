@@ -1,4 +1,3 @@
-import com.sun.java.browser.plugin2.DOM;
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
@@ -13,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class Server
 {
@@ -86,7 +86,7 @@ public class Server
 
         System.out.println(domainList);
 
-        server = HttpServer.create(new InetSocketAddress(port), 400);
+        server = HttpServer.create(new InetSocketAddress(port), 0);
         server.createContext("/", new RootHandler());
         server.start();
 
@@ -99,9 +99,11 @@ public class Server
         {
             // Setting URL
             URL url = exchange.getRequestURI().toURL();
-            System.out.println(exchange.getRequestURI());
+            System.out.println(exchange.getRequestURI().getHost());
 
-            if (!blackList.contains(exchange.getRequestURI().toString()))
+            String urlHostName = exchange.getRequestURI().getHost();
+
+            if (!blackList.contains(urlHostName) && !blackList.contains(urlHostName.replaceFirst("www.", "")))
             {
                 HttpURLConnection httpURLConnection = (HttpURLConnection) url.openConnection();
                 httpURLConnection.setInstanceFollowRedirects(false);
@@ -165,6 +167,7 @@ public class Server
                 InputStream inputStream = null;
                 OutputStream os = null;
                 Long inputLength = null;
+                int httpConnectionCode = 0;
 
                 try
                 {
@@ -174,7 +177,8 @@ public class Server
                     os = exchange.getResponseBody();
 
                     inputLength = Long.valueOf(bytes.length);
-                    exchange.sendResponseHeaders(httpURLConnection.getResponseCode(), bytes.length);
+                    httpConnectionCode = httpURLConnection.getResponseCode();
+                    exchange.sendResponseHeaders(httpConnectionCode, bytes.length);
                     os.write(bytes);
                 } catch (Exception e)
                 {
@@ -185,32 +189,54 @@ public class Server
                     inputStream.close();
                     httpURLConnection.disconnect();
                 }
-
-                String domainUrl = exchange.getRequestURI().toString();
-                Domain domain = null;
-
-                for(Domain d: domainList)
+                if(true || httpConnectionCode >= 200 && httpConnectionCode < 300)
                 {
-                    if(d.getUrl().equals(domainUrl))
-                        domain = d;
-                }
+                    String domainHost = exchange.getRequestURI().getHost();
+                    Domain domain = null;
 
-                // domain exists
-                if (domain != null)
-                {
-                    System.out.println("Domain " + domainUrl + " exists");
-                } else
-                {
-                    // creating new domain
-                    if (inputLength != null)
+                    for (Domain d : domainList)
                     {
-                        System.out.println("Creating new domain!");
-                        domain = new Domain(domainUrl, 1, inputLength, outputLength);
-                        domainList.add(domain);
+                        if (d.getUrl().equals(domainHost))
+                            domain = d;
+                    }
 
-                        System.out.println(domainList);
+                    // domain exists - updating
+                    if (domain != null)
+                    {
+//                    Domain newDomain = new Domain(domain.getUrl(), domain.getRequestNumber() + 1, domain.getBytesSent() + outputLength, domain.getBytesReceived() + inputLength);
+                        System.out.println("old : " + domainList);
+                        Domain finalDomain = domain;
+                        Long finalOutputLength = outputLength;
+                        Long finalInputLength = inputLength;
+
+                        domainList = domainList.stream().map(d ->
+                        {
+                            if(d.getUrl().equals(finalDomain.getUrl()))
+                            {
+                                System.out.println("Changing this object!");
+                                d.setRequestNumber(d.getRequestNumber() + 1);
+                                d.setBytesSent(d.getBytesSent() + finalOutputLength);
+                                d.setBytesReceived(d.getBytesReceived() + finalInputLength);
+                            }
+                            return d;
+                        }).collect(Collectors.toList());
 
                         updateCSV();
+
+                        System.out.println("new : " + domainList);
+                    } else
+                    {
+                        // creating new domain
+                        if (inputLength != null)
+                        {
+                            System.out.println("Creating new domain!");
+                            domain = new Domain(domainHost, 1, outputLength, inputLength);
+                            domainList.add(domain);
+
+//                        System.out.println(domainList);
+
+                            updateCSV();
+                        }
                     }
                 }
             } else
@@ -251,6 +277,7 @@ public class Server
             domainList.forEach(domain -> stringBuilder.append(domain + "\n"));
 
             printWriter.write(stringBuilder.toString());
+            printWriter.close();
         } catch (IOException e)
         {
             e.printStackTrace();

@@ -58,6 +58,11 @@ public class Domain
         this.bytesReceived = bytesReceived;
     }
 
+    public static void setId_number(long id_number)
+    {
+        Domain.id_number = id_number;
+    }
+
     public Domain(String url, long requestNumber, long bytesSent, long bytesReceived)
     {
         this.id = id_number++;
@@ -76,6 +81,7 @@ public class Domain
         this.requestNumber = Long.parseLong(data[2]);
         this.bytesSent = Long.parseLong(data[3]);
         this.bytesReceived = Long.parseLong(data[4]);
+        setId_number(Long.parseLong(data[0]) + 1);
     }
 
     @Override
